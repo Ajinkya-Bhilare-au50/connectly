@@ -1,0 +1,19 @@
+# Secrets — never commit these (use the .env.example files as templates)
+.env
+.env.*
+!.env.example
+
+# Dependencies & build output
+node_modules/
+.next/
+out/
+.venv/
+__pycache__/
+*.pyc
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
