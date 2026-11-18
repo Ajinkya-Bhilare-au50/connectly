@@ -19,14 +19,17 @@ import asyncio
 import os
 import random
 import re
+import urllib.request
 from datetime import UTC, datetime, timedelta
 
 from bson import ObjectId
+from pymongo import UpdateOne
 
 from app import db
 from app.config import BASE_DIR
 from app.security import hash_password
 from app.social import extract_hashtags
+from app.uploads import delete_upload, delete_uploads_of, save_image, sniff_image_type
 
 BATCH = "people-v1"
 
@@ -140,6 +143,27 @@ POSTS = [
     "Weekend road trip to Lonavala done ✅ #Travel",
     "TypeScript caught a bug before it reached production today. Worth it. #TypeScript",
 ]
+PHOTO_CAPTIONS = [
+    "Weekend view 🌄 #Photography", "Golden hour hits different ✨ #GoldenHour", "Took a break and found this 📸",
+    "Nature is the best therapy 🌿 #Nature", "Photo dump from the trip 🧳 #Travel", "Some places stay with you 💙 #Travel",
+    "Quiet mornings like this ☕", "Captured on my phone, no filter 📱 #NoFilter", "Wish I could go back here 🌊",
+    "Little details make a big difference #Photography", "Chasing light 📷 #Photography", "Sunday walk 🚶 #WeekendVibes",
+    "The view from today's trek ⛰️ #Trekking", "City lights and late nights 🌃 #CityLife", "Found my new favourite spot 📍",
+    "Monsoon mood 🌧️ #Monsoon", "Somewhere I'd rather be right now 🌴", "Stopped the car just to take this 🚗 #RoadTrip",
+    "Coffee and a good view ☕ #Coffee", "Proof that the long drive was worth it 🛣️ #RoadTrip",
+    "Still thinking about this place 💭 #Travel", "Simple things 🌼", "My camera roll lately 📸 #Photography",
+    "Exploring new corners of the city #Explore", "Recharge mode: ON 🔋 #Nature", "Hello from the mountains 👋 #Mountains",
+    "Today's walk was worth it 🌳 #Nature", "Can't stop looking at this 😍", "Weekend getaway done right ✅ #Travel",
+    "Light, shadow, repeat 📷 #Photography",
+]
+PHOTO_REPLIES = [
+    "Stunning shot! 😍", "Where is this?", "Adding this to my travel list ✈️", "Beautiful 💙", "What camera do you use?",
+    "This is wallpaper material 🔥", "Wow, the colours!", "Take me there 🙏", "Great composition 👏", "Love this view",
+]
+# Real photographs from Lorem Picsum (Unsplash photos, Unsplash License — free to use).
+PHOTO_URL = "https://picsum.photos/seed/{seed}/{w}/{h}.jpg"
+PHOTO_SIZES = [(1000, 667), (1000, 667), (1000, 750), (1000, 1000), (800, 1000)]
+
 REPLIES = [
     "Congrats! 🎉", "This is so true 💯", "Totally agree!", "Love this 😍", "Haha same here 😂",
     "Need to try this!", "Wow, great work 👏", "Count me in!", "Bookmarking this.", "Well said.",
@@ -201,9 +225,100 @@ async def remove():
     )
     await d.tweets.update_many({}, {"$pull": {"likes": {"$in": ids}, "retweets": {"$in": ids}}})
     await d.notifications.delete_many({"$or": [{"actor": {"$in": ids}}, {"user": {"$in": ids}}, {"tweet": {"$in": tweet_ids}}]})
+    for uid in ids:
+        await delete_uploads_of(uid)  # their photos
     async for t in d.tweets.find({"repliesCount": {"$gt": 0}}, {"_id": 1}):
         await d.tweets.update_one({"_id": t["_id"]}, {"$set": {"repliesCount": await d.tweets.count_documents({"replyTo": t["_id"]})}})
     print(f"Removed {len(ids)} generated people and {len(tweet_ids)} of their posts.")
+
+
+def _download(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "connectly-demo-data/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+async def add_photos(count: int, seed: int):
+    """Photo posts by the generated people: real photos stored in GridFS, with likes, reposts and comments."""
+    d = db.get_db()
+    users = [u async for u in d.users.find({"demoBatch": BATCH}, {"_id": 1, "createdAt": 1})]
+    if not users:
+        print("No generated people yet. Run the script without --photos first.")
+        return
+    if await d.tweets.count_documents({"demoPhoto": BATCH}):
+        print("Photo posts already exist. Run with --remove-photos first to regenerate them.")
+        return
+
+    rng = random.Random(seed + 1)
+    now = datetime.now(UTC)
+    profiles = {p["user"]: p async for p in d.profiles.find({"user": {"$in": [u["_id"] for u in users]}}, {"user": 1, "followers": 1})}
+    authors = [rng.choice(users) for _ in range(count)]
+
+    # Download in parallel (8 at a time), skipping any that fail.
+    sem = asyncio.Semaphore(8)
+
+    async def fetch(i):
+        w, h = rng.choice(PHOTO_SIZES)
+        url = PHOTO_URL.format(seed=f"connectly-{seed}-{i}", w=w, h=h)
+        async with sem:
+            try:
+                data = await asyncio.to_thread(_download, url)
+            except Exception as exc:  # network hiccup: skip this one
+                print(f"  skipped photo {i + 1}: {exc}")
+                return None
+        return data if sniff_image_type(data) else None
+
+    print(f"Downloading {count} photos…")
+    images = await asyncio.gather(*(fetch(i) for i in range(count)))
+
+    tweets, replies, profile_ops = [], [], []
+    for author, data in zip(authors, images):
+        if not data:
+            continue
+        uid = author["_id"]
+        url = await save_image(data, sniff_image_type(data), uid)
+        caption = rng.choice(PHOTO_CAPTIONS)
+        ts = random_date(rng, author["createdAt"], now - timedelta(minutes=5))
+        audience = profiles.get(uid, {}).get("followers") or [u["_id"] for u in users if u["_id"] != uid]
+        likers = rng.sample(audience, min(len(audience), rng.randint(3, 40)))
+        reposters = rng.sample(audience, min(len(audience), rng.randint(0, 8)))
+        tweet = {
+            "_id": ObjectId(), "author": uid, "text": caption, "image": url, "video": None, "replyTo": None,
+            "hashtags": extract_hashtags(caption), "mentions": [], "repliesCount": 0, "edited": False,
+            "likes": likers, "retweets": reposters, "createdAt": ts, "updatedAt": ts,
+            "demoBatch": BATCH, "demoPhoto": BATCH,
+        }
+        for replier in rng.sample(audience, min(len(audience), rng.choice([0, 1, 1, 2, 3]))):
+            rts = random_date(rng, ts, now)
+            replies.append({
+                "_id": ObjectId(), "author": replier, "text": rng.choice(PHOTO_REPLIES), "image": None, "video": None,
+                "replyTo": tweet["_id"], "hashtags": [], "mentions": [], "repliesCount": 0, "edited": False,
+                "likes": [], "retweets": [], "createdAt": rts, "updatedAt": rts, "demoBatch": BATCH, "demoPhoto": BATCH,
+            })
+            tweet["repliesCount"] += 1
+        tweets.append(tweet)
+        profile_ops += [UpdateOne({"user": u}, {"$addToSet": {"likes": tweet["_id"]}}) for u in likers]
+        profile_ops += [UpdateOne({"user": u}, {"$addToSet": {"retweets": tweet["_id"]}}) for u in reposters]
+
+    if not tweets:
+        print("No photos could be downloaded (check your internet connection).")
+        return
+    await d.tweets.insert_many(tweets + replies)
+    if profile_ops:
+        await d.profiles.bulk_write(profile_ops, ordered=False)
+    print(f"Added {len(tweets)} photo posts and {len(replies)} comments.")
+
+
+async def remove_photos():
+    d = db.get_db()
+    photo_posts = [t async for t in d.tweets.find({"demoPhoto": BATCH, "replyTo": None}, {"_id": 1, "image": 1})]
+    ids = [t["_id"] for t in photo_posts]
+    for t in photo_posts:
+        await delete_upload(t.get("image"))
+    await d.tweets.delete_many({"demoPhoto": BATCH})
+    await d.profiles.update_many({}, {"$pull": {"likes": {"$in": ids}, "retweets": {"$in": ids}, "bookmarks": {"$in": ids}}})
+    await d.notifications.delete_many({"tweet": {"$in": ids}})
+    print(f"Removed {len(ids)} photo posts and their images.")
 
 
 async def generate(n_women, n_men, seed):
@@ -311,12 +426,18 @@ async def main():
     parser.add_argument("--men", type=int, default=95)
     parser.add_argument("--seed", type=int, default=2026, help="random seed (same seed = same people)")
     parser.add_argument("--remove", action="store_true", help="delete all generated people")
+    parser.add_argument("--photos", type=int, metavar="N", help="add N photo posts by the generated people")
+    parser.add_argument("--remove-photos", action="store_true", help="delete the generated photo posts")
     args = parser.parse_args()
 
     await db.connect()
     try:
         if args.remove:
             await remove()
+        elif args.remove_photos:
+            await remove_photos()
+        elif args.photos:
+            await add_photos(args.photos, args.seed)
         else:
             await generate(args.women, args.men, args.seed)
     finally:

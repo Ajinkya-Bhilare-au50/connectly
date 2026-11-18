@@ -430,6 +430,42 @@ const avatarBox = css`
   border-radius: 9999px;
 `;
 
+/*
+ * Avatar colors for people without a photo. Every pair keeps white initials readable
+ * (≥ 3:1 contrast on both ends of the gradient).
+ */
+const AVATAR_COLORS = [
+  ['#1D4ED8', '#3B82F6'], // blue
+  ['#6D28D9', '#8B5CF6'], // violet
+  ['#BE185D', '#EC4899'], // pink
+  ['#B91C1C', '#EF4444'], // red
+  ['#C2410C', '#EA580C'], // orange
+  ['#B45309', '#D97706'], // amber
+  ['#15803D', '#16A34A'], // green
+  ['#0F766E', '#0D9488'], // teal
+  ['#0E7490', '#0891B2'], // cyan
+  ['#4338CA', '#4F46E5'], // indigo
+  ['#A21CAF', '#C026D3'], // fuchsia
+  ['#334155', '#475569'], // slate
+];
+
+/** Same name → same color, everywhere (simple string hash). */
+export function avatarColor(name = '') {
+  let hash = 5381;
+  for (const ch of name.trim().toLowerCase()) hash = ((hash << 5) + hash + ch.codePointAt(0)) >>> 0;
+  const [from, to] = AVATAR_COLORS[hash % AVATAR_COLORS.length];
+  return `linear-gradient(135deg, ${from} 0%, ${to} 100%)`;
+}
+
+/** "Andres Wunsch" → "AW", "Fernando O'Connell" → "FO", "Ajinkya" → "A". */
+export function initials(name = '') {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+  const first = Array.from(words[0])[0] ?? '';
+  const last = words.length > 1 ? Array.from(words[words.length - 1])[0] ?? '' : '';
+  return (first + last).toUpperCase();
+}
+
 /** Initial sits underneath; the photo covers it once loaded (no empty circle while loading). */
 const AvatarFrame = styled.span`
   /* "&&" raises specificity so generic span rules in parent components can't restyle avatars. */
@@ -440,10 +476,11 @@ const AvatarFrame = styled.span`
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    background: var(--brand-gradient);
+    background: ${({ $bg }) => $bg || 'var(--brand-gradient)'};
     color: #fff;
     font-weight: 600;
-    font-size: ${({ $size = 40 }) => Math.round($size * 0.42)}px;
+    font-size: ${({ $size = 40, $chars = 1 }) => Math.round($size * ($chars > 1 ? 0.36 : 0.42))}px;
+    letter-spacing: ${({ $chars = 1 }) => ($chars > 1 ? '0.02em' : '0')};
     line-height: 1;
     user-select: none;
   }
@@ -469,10 +506,11 @@ const AvatarInitial = styled.span`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--brand-gradient);
+    background: ${({ $bg }) => $bg || 'var(--brand-gradient)'};
     color: #fff;
     font-weight: 600;
-    font-size: ${({ $size = 40 }) => Math.round($size * 0.42)}px;
+    font-size: ${({ $size = 40, $chars = 1 }) => Math.round($size * ($chars > 1 ? 0.36 : 0.42))}px;
+    letter-spacing: ${({ $chars = 1 }) => ($chars > 1 ? '0.02em' : '0')};
     line-height: 1;
     user-select: none;
   }
@@ -480,27 +518,30 @@ const AvatarInitial = styled.span`
 
 /**
  * Round avatar. Without a photo (or if the link is broken) it shows the person's
- * initial on the brand gradient. Pass `name`, or an `alt` like "Jane's avatar".
+ * first + last initials on a color chosen from their name. Pass `name`, or an `alt`
+ * like "Jane Doe's avatar".
  */
 export function Avatar({ src, alt = '', name, $size = 40, className, style, ...rest }) {
   const url = mediaUrl(src);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
 
-  const label = name || alt.replace(/'s avatar$/, '').replace(/ preview$/i, '');
-  const initial = label && !/avatar/i.test(label) ? label.trim().charAt(0).toUpperCase() : '';
-  const fallback = initial || <RiUser3Fill aria-hidden />;
+  const rawLabel = name || alt.replace(/'s avatar$/, '').replace(/ preview$/i, '');
+  const label = rawLabel && !/avatar/i.test(rawLabel) ? rawLabel : '';
+  const letters = initials(label);
+  const fallback = letters || <RiUser3Fill aria-hidden />;
+  const colors = { $bg: label ? avatarColor(label) : undefined, $chars: letters.length || 1 };
 
   if (!url || failed) {
     return (
-      <AvatarInitial role="img" aria-label={alt || label || 'Avatar'} className={className} style={style} $size={$size}>
+      <AvatarInitial role="img" aria-label={alt || label || 'Avatar'} className={className} style={style} $size={$size} {...colors}>
         {fallback}
       </AvatarInitial>
     );
   }
 
   return (
-    <AvatarFrame className={className} style={style} $size={$size}>
+    <AvatarFrame className={className} style={style} $size={$size} {...colors}>
       <span aria-hidden>{fallback}</span>
       <img src={url} alt={alt} onError={() => setFailed(true)} {...rest} />
     </AvatarFrame>

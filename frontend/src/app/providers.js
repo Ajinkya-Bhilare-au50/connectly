@@ -13,6 +13,7 @@ import { MobileNav, Sidebar } from '@/components/Navigation';
 import TopBar from '@/components/TopBar';
 import RightRail from '@/components/RightRail';
 import Alerts from '@/components/Alerts';
+import CreditBanner from '@/components/CreditBanner';
 import { PageTitleSlotContext } from '@/components/ui';
 
 // Pages with their own full-screen layout (no sidebar / top bar).
@@ -27,6 +28,7 @@ function AppShell({ children, modal }) {
   if (BARE_ROUTES.includes(pathname)) {
     return (
       <>
+        <CreditBanner />
         {children}
         <Alerts />
       </>
@@ -43,6 +45,7 @@ function AppShell({ children, modal }) {
       <Shell>
         <Sidebar />
         <MainArea>
+          <CreditBanner />
           <TopBar slotRef={setTitleSlot} />
           <ContentRow>
             <MainColumn id="main" $wide={wide}>
