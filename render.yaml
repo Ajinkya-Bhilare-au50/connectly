@@ -1,0 +1,27 @@
+# Render Blueprint — deploys the Connectly API (backend/Dockerfile) as a free web service.
+# Render → New → Blueprint → pick this repository. Secrets marked `sync: false` are asked for in the dashboard.
+services:
+  - type: web
+    name: connectly-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: ENV
+        value: production
+      - key: MONGO_URI
+        sync: false # your MongoDB Atlas connection string
+      - key: JWT_SECRET
+        generateValue: true # Render creates a long random secret
+      - key: JWT_EXPIRES
+        value: "3600"
+      - key: CORS_ORIGINS
+        sync: false # your Vercel address, e.g. https://connectly-xyz.vercel.app
+      - key: CORS_ORIGIN_REGEX
+        value: ^https://connectly-[a-z0-9-]+\.vercel\.app$
+      - key: FRONTEND_URL
+        sync: false # same Vercel address (used in password-reset links)

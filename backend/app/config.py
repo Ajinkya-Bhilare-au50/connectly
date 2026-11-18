@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_expires: int = 3600  # seconds
     cors_origins: str = "*"  # comma separated list, or *
+    # Optional regex for extra allowed origins, e.g. Vercel preview URLs: https://connectly-.*\.vercel\.app
+    cors_origin_regex: str = ""
     frontend_url: str = "http://localhost:3000"  # used in password-reset links
 
     @property

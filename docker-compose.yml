@@ -1,0 +1,62 @@
+# Connectly — full stack in Docker:  docker compose up -d --build
+#
+#   browser ──► frontend (Next.js)  :3000
+#   browser ──► backend  (FastAPI)  :3001 ──► mongo (MongoDB, private network only)
+#
+# Settings come from the .env file next to this one (copy .env.example → .env).
+
+name: connectly
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db # data survives container rebuilds
+    # No "ports:" — only the backend (on the same Docker network) can reach the database.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    image: connectly-backend:latest
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      ENV: ${APP_ENV:-production}
+      # "mongo" is the service name above — Docker's network turns it into the container's address.
+      # Set MONGO_URI in .env to use MongoDB Atlas instead of the mongo container.
+      MONGO_URI: ${MONGO_URI:-mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD}@mongo:27017/connectly?authSource=admin}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRES: ${JWT_EXPIRES:-3600}
+      CORS_ORIGINS: ${PUBLIC_APP_URL:-http://localhost:3000}
+      FRONTEND_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      SEED_DEFAULT_USER_PASSWORD: ${SEED_DEFAULT_USER_PASSWORD:-}
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the browser bundle at build time: the address the *browser* uses to reach the API.
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001/api}
+    image: connectly-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  mongo-data:

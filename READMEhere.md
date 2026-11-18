@@ -9,7 +9,24 @@ backend/    FastAPI + PyMongo (async)                                           
 MongoDB     any MongoDB (local or Atlas); files are stored in MongoDB (GridFS)
 ```
 
-## Run
+## Deploy
+
+Free hosting with Vercel (frontend) + Render (backend container) + MongoDB Atlas: see [DEPLOY.md](DEPLOY.md).
+
+## Run with Docker (everything in containers)
+
+Requires Docker Desktop. From the project folder:
+
+```powershell
+Copy-Item .env.example .env      # first time only — then set MONGO_PASSWORD and JWT_SECRET
+docker compose up -d --build
+```
+
+Open http://localhost:3000 (API docs: http://localhost:3001/api/docs). MongoDB runs in a container with its
+data in the `connectly_mongo-data` volume. See [dockerguide.md](dockerguide.md) for all commands, loading demo
+data, and using Atlas instead.
+
+## Run without Docker
 
 ### 1. Backend
 
