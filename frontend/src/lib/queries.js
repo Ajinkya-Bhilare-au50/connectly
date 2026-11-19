@@ -440,3 +440,51 @@ export const useListMember = () =>
   useListMutation(({ listId, userId, add }) =>
     (add ? client.post : client.delete)(`/lists/${listId}/members/${userId}`).then((res) => res.data.list)
   );
+
+// ---------------------------------------------------------------- admin
+
+/** Site totals (admins only). */
+export function useAdminStats(enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'stats'],
+    queryFn: () => client.get('/users/stats').then((res) => res.data),
+    enabled,
+  });
+}
+
+/** One page of users for the admin table: { results, page, totalPages, totalResults }. */
+export function useAdminUsers({ q = '', role = '', page = 1 } = {}, enabled = true) {
+  const params = cleanQuery({ q: q.trim(), role, page, limit: 20, sortBy: 'createdAt:desc' });
+  return useQuery({
+    queryKey: ['admin', 'users', params],
+    queryFn: () => client.get('/users', { params }).then((res) => res.data),
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** Admin actions on a user: change role or delete. Refreshes the admin data and feeds afterwards. */
+export function useAdminUserMutation() {
+  const queryClient = useQueryClient();
+  const { setAlert } = useAlert();
+  return useMutation({
+    mutationFn: ({ action, user }) =>
+      action === 'delete'
+        ? client.delete(`/users/${user._id}`)
+        : client.patch(`/users/${user._id}`, { role: action === 'makeAdmin' ? 'admin' : 'user' }),
+    onSuccess: (_, { action, user }) => {
+      const msg = {
+        delete: `${user.name}'s account was deleted.`,
+        makeAdmin: `${user.name} is now an admin.`,
+        removeAdmin: `${user.name} is no longer an admin.`,
+      }[action];
+      setAlert({ type: 'success', msg });
+      queryClient.invalidateQueries({ queryKey: ['admin'] });
+      if (action === 'delete') {
+        queryClient.invalidateQueries({ queryKey: ['tweets'] });
+        queryClient.invalidateQueries({ queryKey: ['profiles'] });
+      }
+    },
+    onError: (err) => setAlert({ type: 'error', msg: err?.response?.data?.message || 'That did not work. Please try again.' }),
+  });
+}

@@ -549,7 +549,7 @@ function EditDialog({ tweet, onClose }) {
   );
 }
 
-/** The ⋯ menu: bookmark, copy link, and edit/delete for your own posts. */
+/** The ⋯ menu: bookmark, copy link, and edit/delete for your own posts (or any post, for admins). */
 export function PostMenu({ tweet, onDelete }) {
   const user = useUser();
   const share = useShareTweet();
@@ -557,6 +557,8 @@ export function PostMenu({ tweet, onDelete }) {
   const { open, toggle, close, wrapRef, triggerRef } = usePopover();
   const [editing, setEditing] = useState(false);
   const isOwner = !!(user && tweet.author && user._id === tweet.author._id);
+  // Admins can edit or delete anyone's post (moderation).
+  const canModify = isOwner || user?.role === 'admin';
   const href = tweet.author ? `/${tweet.author._id}/status/${tweet._id}` : null;
 
   const choose = (fn) => (e) => {
@@ -583,14 +585,14 @@ export function PostMenu({ tweet, onDelete }) {
               <RiLinksLine aria-hidden /> Copy link
             </MenuItem>
           )}
-          {isOwner && tweet.text && (
+          {canModify && tweet.text && (
             <MenuItem role="menuitem" onClick={choose(() => setEditing(true))}>
-              <RiEdit2Line aria-hidden /> Edit
+              <RiEdit2Line aria-hidden /> {isOwner ? 'Edit' : 'Edit (admin)'}
             </MenuItem>
           )}
-          {isOwner && (
+          {canModify && (
             <MenuItem role="menuitem" $danger onClick={choose(onDelete)}>
-              <RiDeleteBin6Line aria-hidden /> Delete
+              <RiDeleteBin6Line aria-hidden /> {isOwner ? 'Delete' : 'Delete (admin)'}
             </MenuItem>
           )}
         </MenuPanel>

@@ -1,3 +1,4 @@
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -19,14 +20,37 @@ async def get_users(
     _: Annotated[dict, Depends(require_rights("getUsers"))],
     name: str | None = None,
     role: str | None = None,
+    q: str | None = None,
     sortBy: str | None = None,
     limit: Annotated[int | None, Query()] = None,
     page: Annotated[int | None, Query()] = None,
 ):
-    """Get all users (admin)."""
+    """Get all users (admin). `q` searches name, username and email."""
     filter_ = {k: v for k, v in {"name": name, "role": role}.items() if v}
+    if q and q.strip():
+        pattern = {"$regex": re.escape(q.strip()), "$options": "i"}
+        filter_["$or"] = [{"name": pattern}, {"username": pattern}, {"email": pattern}]
     docs, meta = await paginate(get_db().users, filter_, sort_by=sortBy, limit=limit, page=page)
     return {"results": serialize(docs), **meta}
+
+
+@router.get("/stats")
+async def get_stats(_: Annotated[dict, Depends(require_rights("getUsers"))]):
+    """Site totals for the admin page (admin)."""
+    db = get_db()
+    return {
+        "users": await db.users.count_documents({}),
+        "admins": await db.users.count_documents({"role": "admin"}),
+        "posts": await db.tweets.count_documents({"replyTo": None}),
+        "replies": await db.tweets.count_documents({"replyTo": {"$ne": None}}),
+        "messages": await db.messages.count_documents({}),
+    }
+
+
+async def _ensure_not_last_admin(user: dict) -> None:
+    """The site must always keep at least one admin."""
+    if user.get("role") == "admin" and await get_db().users.count_documents({"role": "admin"}) <= 1:
+        raise ApiError(400, "This is the only admin. Make someone else an admin first.")
 
 
 @router.get("/{userId}")
@@ -72,9 +96,11 @@ async def update_user(
     if values.get("password"):
         values["password"] = hash_password(values["password"])
 
-    old_user = await get_db().users.find_one({"_id": user_id}, {"avatar": 1})
+    old_user = await get_db().users.find_one({"_id": user_id}, {"avatar": 1, "role": 1})
     if old_user is None:
         raise ApiError(404, "User not found")
+    if values.get("role") == "user":
+        await _ensure_not_last_admin(old_user)
     if values.get("avatar"):
         # An uploaded avatar must belong to the account being edited.
         await ensure_own_upload(values["avatar"], user_id)
@@ -103,10 +129,15 @@ async def delete_user(userId: str, _: Annotated[dict, Depends(require_rights("ma
     user = await db.users.find_one({"_id": user_id})
     if user is None:
         raise ApiError(404, "User not found")
+    await _ensure_not_last_admin(user)
 
+    # Posts they replied to need their reply counts fixed afterwards.
+    replied_to = await db.tweets.distinct("replyTo", {"author": user_id, "replyTo": {"$ne": None}})
     await db.users.delete_one({"_id": user_id})
     await db.profiles.delete_one({"user": user_id})
     await db.tweets.delete_many({"author": user_id})
+    for parent in replied_to:
+        await db.tweets.update_one({"_id": parent}, {"$set": {"repliesCount": await db.tweets.count_documents({"replyTo": parent})}})
     # Clean up dangling references (the old server left these behind).
     await db.profiles.update_many({}, {"$pull": {"following": user_id, "followers": user_id}})
     await db.tweets.update_many({}, {"$pull": {"likes": user_id, "retweets": user_id}})

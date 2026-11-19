@@ -10,6 +10,7 @@ import {
   RiMoreFill,
   RiQuestionLine,
   RiSettings3Line,
+  RiShieldUserLine,
   RiUser3Line,
   RiUserAddLine,
 } from 'react-icons/ri';
@@ -267,6 +268,11 @@ export default function AccountMenu({ variant = 'avatar' }) {
               <MenuItem role="menuitem" as={Link} href="/settings" onClick={close}>
                 <RiSettings3Line aria-hidden /> Settings
               </MenuItem>
+              {user.role === 'admin' && (
+                <MenuItem role="menuitem" as={Link} href="/admin" onClick={close}>
+                  <RiShieldUserLine aria-hidden /> Admin
+                </MenuItem>
+              )}
               <MenuItem role="menuitem" onClick={() => setSwitching(true)}>
                 <RiArrowLeftRightLine aria-hidden /> Switch account
               </MenuItem>

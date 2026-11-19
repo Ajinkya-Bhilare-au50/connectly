@@ -127,13 +127,13 @@ const ConfirmBox = styled.div`
 `;
 
 /** Small confirm dialog for destructive actions. */
-export function ConfirmDialog({ title, message, confirmLabel = 'Delete', onConfirm, onCancel, busy }) {
+export function ConfirmDialog({ title, message, confirmLabel = 'Delete', confirmVariant = 'danger', onConfirm, onCancel, busy }) {
   return (
     <Modal label={title} maxWidth={320} onDismiss={onCancel}>
       <ConfirmBox>
         <h2>{title}</h2>
         <p>{message}</p>
-        <Button $variant="danger" $size="lg" $block onClick={onConfirm} disabled={busy}>
+        <Button $variant={confirmVariant} $size="lg" $block onClick={onConfirm} disabled={busy}>
           {busy ? 'Working...' : confirmLabel}
         </Button>
         <Button $variant="outline" $size="lg" $block onClick={onCancel}>

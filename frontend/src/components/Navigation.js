@@ -21,6 +21,8 @@ import {
   RiNotification3Line,
   RiQuestionLine,
   RiSettings3Line,
+  RiShieldUserFill,
+  RiShieldUserLine,
   RiSunLine,
   RiTeamFill,
   RiUser3Fill,
@@ -87,6 +89,9 @@ function useNavItems() {
       { href: '/lists', label: 'Lists', icon: RiFileList3Line, activeIcon: RiFileList3Fill },
       { href: `/profile/${user._id}`, label: 'Profile', icon: RiUser3Line, activeIcon: RiUser3Fill }
     );
+  }
+  if (user?.role === 'admin') {
+    items.push({ href: '/admin', label: 'Admin', icon: RiShieldUserLine, activeIcon: RiShieldUserFill });
   }
   return items;
 }
