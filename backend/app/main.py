@@ -61,6 +61,7 @@ if settings.is_dev_or_test:
     app.include_router(test_data.router)
 
 
-@app.get("/api/health", tags=["health"])
+# GET + HEAD so uptime pingers (e.g. UptimeRobot, which uses HEAD) keep the Render instance awake.
+@app.api_route("/api/health", methods=["GET", "HEAD"], tags=["health"])
 async def health():
     return {"status": "ok"}
